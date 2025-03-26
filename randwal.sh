@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Directory containing the wallpapers
-wallpapers_dir="/home/zed/Pictures/gowall/"
+wallpapers_dir="/home/zed/Pictures/wall/"
 
 # Function to set the wallpaper
 set_wallpaper() {
