@@ -1,0 +1,133 @@
+#!/bin/sh
+
+# --- Configuration Paths and Defaults ---
+config_dir="$HOME/.config/randwal"
+config_file="$config_dir/config"
+default_wallpapers_dir="$HOME/Pictures/wallpapers"
+default_interval=60
+
+# --- Create Configuration Directory ---
+if [ ! -d "$config_dir" ]; then
+  mkdir -p "$config_dir"
+  if [ $? -ne 0 ]; then
+    echo "Error: Could not create configuration directory: $config_dir" >&2
+    # Attempt to run with defaults if config dir creation fails
+  fi
+fi
+
+# --- Load Configuration ---
+# Initialize with defaults
+wallpapers_dir="$default_wallpapers_dir"
+interval="$default_interval"
+
+if [ -r "$config_file" ]; then
+  echo "Loading configuration from $config_file"
+  # Source the config file carefully. It should only contain variable assignments.
+  # Variables from the config file (CONFIG_WALLPAPERS_DIR, CONFIG_INTERVAL) will be set in the current shell environment.
+  . "$config_file"
+  # Use loaded values if they are set and not empty
+  if [ -n "$CONFIG_WALLPAPERS_DIR" ]; then
+    wallpapers_dir="$CONFIG_WALLPAPERS_DIR"
+  fi
+  if [ -n "$CONFIG_INTERVAL" ]; then
+    # Basic validation for interval from config: must be a positive integer
+    if [ "$CONFIG_INTERVAL" -gt 0 ] 2>/dev/null; then
+      interval="$CONFIG_INTERVAL"
+    else
+      echo "Warning: Invalid interval '$CONFIG_INTERVAL' in config file. Using default ($default_interval seconds) or previously set value." >&2
+    fi
+  fi
+  echo "Config loaded: Directory='$wallpapers_dir', Interval='$interval'"
+else
+  echo "No configuration file found at $config_file. Using defaults."
+fi
+
+# --- Handle Command-Line Override for Wallpaper Directory ---
+if [ -n "$1" ]; then
+  # User provided a directory as a command-line argument
+  if [ -d "$1" ] && [ -r "$1" ]; then
+    echo "Overriding wallpaper directory with command-line argument: $1"
+    wallpapers_dir="$1"
+  else
+    echo "Warning: Command-line directory '$1' is not a readable directory. Using previously determined directory: $wallpapers_dir" >&2
+  fi
+fi
+
+# --- Save Final Configuration ---
+# Only attempt to save if the config directory exists or was created successfully
+if [ -d "$config_dir" ]; then
+  echo "Saving configuration: Directory='$wallpapers_dir', Interval='$interval' to $config_file"
+  # Ensure variables are properly quoted in the output file, especially paths
+  # Using printf for safer output, especially if paths contain spaces, though POSIX sh might not always have robust printf
+  # For maximum POSIX sh compatibility, simple echo with careful quoting is often used.
+  # However, printf is generally safer if available and correctly used.
+  # Let's try with a simple echo structure first for broader compatibility, assuming paths won't have newlines.
+  echo "CONFIG_WALLPAPERS_DIR=\"$wallpapers_dir\"" > "$config_file"
+  echo "CONFIG_INTERVAL=\"$interval\"" >> "$config_file"
+  if [ $? -ne 0 ]; then
+    echo "Warning: Could not write configuration to $config_file" >&2
+  fi
+else
+  echo "Warning: Configuration directory $config_dir does not exist. Configuration will not be saved." >&2
+fi
+
+
+# Global variable to store the Process ID (PID) of the background feh process.
+FEH_PID=""
+
+# --- Pre-run Checks ---
+# Check if feh (wallpaper setting utility) is installed.
+if ! command -v feh >/dev/null 2>&1; then
+  echo "Error: feh is not installed. Please install feh to use this script." >&2
+  exit 1
+fi
+
+# Check if the determined wallpaper directory exists, is a directory, and is readable.
+if [ ! -d "$wallpapers_dir" ] || [ ! -r "$wallpapers_dir" ]; then
+  echo "Error: Wallpaper directory '$wallpapers_dir' does not exist, is not a directory, or is not readable." >&2
+  echo "Please check the command-line argument or the configuration file: $config_file" >&2
+  exit 1
+fi
+
+# --- Functions ---
+# Function to gracefully clean up the feh process and exit.
+cleanup_and_exit() {
+  echo "Exiting and cleaning up feh process..."
+  if [ -n "$FEH_PID" ]; then
+    if kill -0 "$FEH_PID" >/dev/null 2>&1; then # Check if the process is still running
+      kill "$FEH_PID" >/dev/null 2>&1          # Terminate the feh process
+    fi
+  fi
+  exit 0
+}
+
+# Trap SIGINT (Ctrl+C) and SIGTERM signals to call cleanup_and_exit.
+trap cleanup_and_exit INT TERM
+
+# Function to set the wallpaper.
+set_wallpaper() {
+  if [ -n "$FEH_PID" ]; then
+    if kill -0 "$FEH_PID" >/dev/null 2>&1; then
+      kill "$FEH_PID" >/dev/null 2>&1
+      sleep 0.1
+    fi
+  fi
+
+  local image_path
+  image_path=$(find "$wallpapers_dir" -type f -print0 | shuf -n1 -z --)
+
+  if [ -n "$image_path" ]; then
+    feh --bg-fill "$image_path" &
+    FEH_PID=$!
+  else
+    echo "Error: No images found in '$wallpapers_dir'. Will try again." >&2
+  fi
+}
+
+# --- Main Loop ---
+echo "Starting wallpaper rotation. Wallpaper directory: '$wallpapers_dir', Interval: $interval seconds. Press Ctrl+C to exit."
+while true; do
+  set_wallpaper
+  sleep "$interval" # Use the configured interval
+done
+
