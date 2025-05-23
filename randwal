@@ -114,7 +114,7 @@ set_wallpaper() {
   fi
 
   local image_path
-  image_path=$(find "$wallpapers_dir" -type f -print0 | shuf -n1 -z --)
+  image_path=$(find "$wallpapers_dir" -name ".*" -prune -o -type f -print0 | shuf -n1 -z --)
 
   if [ -n "$image_path" ]; then
     feh --bg-fill "$image_path" &
